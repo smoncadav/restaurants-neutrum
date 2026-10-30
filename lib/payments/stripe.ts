@@ -257,6 +257,30 @@ export class StripeProvider implements PaymentProvider {
     return { url: session.client_secret, provider: 'stripe' }
   }
 
+  /** Crea una Account Session con account_management habilitado */
+  async createManagementSession(restaurantId: string): Promise<string> {
+    const supabase = await this.getServiceClient()
+
+    const { data: restaurant } = await supabase
+      .from('restaurants')
+      .select('stripe_account_id')
+      .eq('id', restaurantId)
+      .single()
+
+    if (!restaurant?.stripe_account_id) {
+      throw new Error('Restaurant has no Stripe account connected')
+    }
+
+    const session = await stripe.accountSessions.create({
+      account: restaurant.stripe_account_id,
+      components: {
+        account_management: { enabled: true },
+      },
+    })
+
+    return session.client_secret
+  }
+
   private async getServiceClient() {
     const { createServiceClient } = await import('@/lib/supabase/server')
     return createServiceClient()

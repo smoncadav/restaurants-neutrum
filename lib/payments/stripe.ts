@@ -222,26 +222,39 @@ export class StripeProvider implements PaymentProvider {
   }
 
   async onboardRestaurant(restaurantId: string): Promise<OnboardingUrl> {
-    const account = await stripe.accounts.create({
-      type: 'express',
-      metadata: { restaurant_id: restaurantId },
-    })
-
-    // Guardar account id en BD
     const supabase = await this.getServiceClient()
-    await supabase
-      .from('restaurants')
-      .update({ stripe_account_id: account.id })
-      .eq('id', restaurantId)
 
-    const accountLink = await stripe.accountLinks.create({
-      account: account.id,
-      refresh_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/settings?stripe=refresh`,
-      return_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/settings?stripe=success`,
-      type: 'account_onboarding',
+    // Reutilizar account existente si ya fue creado
+    const { data: restaurant } = await supabase
+      .from('restaurants')
+      .select('stripe_account_id')
+      .eq('id', restaurantId)
+      .single()
+
+    let accountId = restaurant?.stripe_account_id
+
+    if (!accountId) {
+      const account = await stripe.accounts.create({
+        metadata: { restaurant_id: restaurantId },
+      })
+      accountId = account.id
+
+      await supabase
+        .from('restaurants')
+        .update({ stripe_account_id: accountId })
+        .eq('id', restaurantId)
+    }
+
+    // Account Session para Embedded Components (Stripe maneja KYC y compliance)
+    const session = await stripe.accountSessions.create({
+      account: accountId,
+      components: {
+        account_onboarding: { enabled: true },
+      },
     })
 
-    return { url: accountLink.url, provider: 'stripe' }
+    // Retornamos el client_secret — el frontend lo usa con @stripe/connect-js
+    return { url: session.client_secret, provider: 'stripe' }
   }
 
   private async getServiceClient() {

@@ -3,7 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { getPaymentProvider } from '@/lib/payments'
 
 // POST /api/dashboard/payment-onboarding
-// Genera la URL de onboarding para Stripe Express o MercadoPago OAuth
+// Stripe: devuelve client_secret para Embedded Components (@stripe/connect-js)
+// MercadoPago: devuelve url para OAuth redirect
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -29,6 +30,12 @@ export async function POST(request: NextRequest) {
   try {
     const provider = await getPaymentProvider(restaurant)
     const result = await provider.onboardRestaurant(restaurantId)
+
+    if (restaurant.payment_provider === 'stripe') {
+      // url contiene el client_secret del Account Session
+      return NextResponse.json({ clientSecret: result.url })
+    }
+
     return NextResponse.json({ url: result.url })
   } catch (err) {
     return NextResponse.json(

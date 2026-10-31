@@ -1,42 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { StripeProvider } from '@/lib/payments/stripe'
 
-// POST /api/dashboard/stripe-account-session
-// Crea una Account Session con account_management para el componente embebido
+// POST /api/dashboard/stripe-account-session — proxies to Edge Function
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { session } } = await supabase.auth.getSession()
 
-  if (!user) {
+  if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { restaurantId } = await request.json()
+  const body = await request.json()
 
-  const { data: restaurant } = await supabase
-    .from('restaurants')
-    .select('id, owner_id, payment_provider')
-    .eq('id', restaurantId)
-    .eq('owner_id', user.id)
-    .single()
+  const res = await supabase.functions.invoke('stripe-account-session', {
+    body,
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  })
 
-  if (!restaurant) {
-    return NextResponse.json({ error: 'Restaurant not found' }, { status: 404 })
+  if (res.error) {
+    return NextResponse.json({ error: res.error.message }, { status: 500 })
   }
 
-  if (restaurant.payment_provider !== 'stripe') {
-    return NextResponse.json({ error: 'Restaurant uses MercadoPago' }, { status: 400 })
-  }
-
-  try {
-    const provider = new StripeProvider()
-    const clientSecret = await provider.createManagementSession(restaurantId)
-    return NextResponse.json({ clientSecret })
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Session error' },
-      { status: 500 }
-    )
-  }
+  return NextResponse.json(res.data)
 }

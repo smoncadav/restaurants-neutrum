@@ -55,38 +55,28 @@ export default function RegisterPage() {
 
     const supabase = createClient()
 
-    // 1. Crear usuario en Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: values.email,
-      password: values.password,
-      options: {
-        data: { role: 'restaurant_owner' },
-      },
-    })
+    try {
+      const res = await supabase.functions.invoke('register', {
+        body: {
+          email: values.email,
+          password: values.password,
+          restaurant_name: values.restaurant_name,
+          country_code: values.country_code,
+          currency: country.currency,
+          payment_provider: paymentProvider,
+        },
+      })
 
-    if (authError || !authData.user) {
-      setError(authError?.message ?? 'Error al crear cuenta')
+      if (res.error) throw new Error(res.error.message)
+
+      const { access_token, refresh_token } = res.data as { access_token: string; refresh_token: string }
+
+      await supabase.auth.setSession({ access_token, refresh_token })
+      router.push('/dashboard/settings?onboarding=true')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al crear cuenta')
       setLoading(false)
-      return
     }
-
-    // 2. Crear registro de restaurante
-    const { error: restaurantError } = await supabase.from('restaurants').insert({
-      owner_id: authData.user.id,
-      name: values.restaurant_name,
-      country_code: values.country_code,
-      currency: country.currency,
-      payment_provider: paymentProvider,
-      status: 'pending',
-    })
-
-    if (restaurantError) {
-      setError(restaurantError.message)
-      setLoading(false)
-      return
-    }
-
-    router.push('/dashboard/settings?onboarding=true')
   }
 
   return (

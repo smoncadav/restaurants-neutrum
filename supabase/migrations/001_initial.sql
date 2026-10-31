@@ -5,7 +5,6 @@
 -- --------------------------------------------------------
 -- Extensiones
 -- --------------------------------------------------------
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- --------------------------------------------------------
@@ -18,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 -- Tabla: restaurants
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS restaurants (
-  id              uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id        uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   name            text NOT NULL,
   description     text,
@@ -45,7 +44,7 @@ CREATE INDEX idx_restaurants_location ON restaurants USING GIST(location);
 -- Tabla: menus (Meal Kits)
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS menus (
-  id                  uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id       uuid NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   name                text NOT NULL,
   description         text,
@@ -67,7 +66,7 @@ CREATE INDEX idx_menus_status     ON menus(status);
 -- Tabla: menu_health_goals
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS menu_health_goals (
-  id        uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   menu_id   uuid NOT NULL REFERENCES menus(id) ON DELETE CASCADE,
   goal      text NOT NULL
               CHECK (goal IN (
@@ -100,7 +99,7 @@ CREATE TABLE IF NOT EXISTS menu_nutrition (
 -- Tabla: orders
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS orders (
-  id                      uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   external_customer_ref   text NOT NULL,
   restaurant_id           uuid NOT NULL REFERENCES restaurants(id),
   menu_id                 uuid NOT NULL REFERENCES menus(id),
@@ -131,7 +130,7 @@ CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
 -- Tabla: subscriptions
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS subscriptions (
-  id                    uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   external_customer_ref text NOT NULL,
   menu_id               uuid NOT NULL REFERENCES menus(id),
   frequency             text NOT NULL
@@ -153,7 +152,7 @@ CREATE INDEX idx_subscriptions_status ON subscriptions(status);
 -- Tabla: commission_config
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS commission_config (
-  id             uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   type           text NOT NULL CHECK (type IN ('percentage', 'flat')),
   value          numeric NOT NULL CHECK (value >= 0),
   effective_from timestamptz NOT NULL DEFAULT now()
@@ -167,7 +166,7 @@ VALUES ('percentage', 10, now());
 -- Tabla: api_keys (autenticación para plataforma externa)
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS api_keys (
-  id          uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   key_hash    text UNIQUE NOT NULL,
   name        text NOT NULL,
   active      bool NOT NULL DEFAULT true,
@@ -190,7 +189,7 @@ ALTER TABLE api_keys           ENABLE ROW LEVEL SECURITY;
 -- --------------------------------------------------------
 -- Helper: obtener rol del usuario autenticado
 -- --------------------------------------------------------
-CREATE OR REPLACE FUNCTION auth.user_role()
+CREATE OR REPLACE FUNCTION public.user_role()
 RETURNS text LANGUAGE sql STABLE AS $$
   SELECT COALESCE(
     auth.jwt() -> 'app_metadata' ->> 'role',
@@ -204,12 +203,12 @@ $$;
 
 -- platform_admin: acceso total
 CREATE POLICY "admin_all_restaurants" ON restaurants
-  FOR ALL USING (auth.user_role() = 'platform_admin');
+  FOR ALL USING (public.user_role() = 'platform_admin');
 
 -- restaurant_owner: solo sus propios restaurantes
 CREATE POLICY "owner_own_restaurants" ON restaurants
   FOR ALL USING (
-    auth.user_role() = 'restaurant_owner'
+    public.user_role() = 'restaurant_owner'
     AND owner_id = auth.uid()
   );
 
@@ -225,11 +224,11 @@ CREATE POLICY "service_read_active_restaurants" ON restaurants
 -- --------------------------------------------------------
 
 CREATE POLICY "admin_all_menus" ON menus
-  FOR ALL USING (auth.user_role() = 'platform_admin');
+  FOR ALL USING (public.user_role() = 'platform_admin');
 
 CREATE POLICY "owner_own_menus" ON menus
   FOR ALL USING (
-    auth.user_role() = 'restaurant_owner'
+    public.user_role() = 'restaurant_owner'
     AND restaurant_id IN (
       SELECT id FROM restaurants WHERE owner_id = auth.uid()
     )
@@ -237,7 +236,7 @@ CREATE POLICY "owner_own_menus" ON menus
 
 -- nutritionist: solo puede actualizar menus (no crear/borrar)
 CREATE POLICY "nutritionist_update_menus" ON menus
-  FOR SELECT USING (auth.user_role() = 'nutritionist');
+  FOR SELECT USING (public.user_role() = 'nutritionist');
 
 CREATE POLICY "service_read_active_menus" ON menus
   FOR SELECT USING (
@@ -250,11 +249,11 @@ CREATE POLICY "service_read_active_menus" ON menus
 -- --------------------------------------------------------
 
 CREATE POLICY "admin_all_health_goals" ON menu_health_goals
-  FOR ALL USING (auth.user_role() = 'platform_admin');
+  FOR ALL USING (public.user_role() = 'platform_admin');
 
 CREATE POLICY "owner_health_goals" ON menu_health_goals
   FOR ALL USING (
-    auth.user_role() = 'restaurant_owner'
+    public.user_role() = 'restaurant_owner'
     AND menu_id IN (
       SELECT m.id FROM menus m
       JOIN restaurants r ON r.id = m.restaurant_id
@@ -263,7 +262,7 @@ CREATE POLICY "owner_health_goals" ON menu_health_goals
   );
 
 CREATE POLICY "nutritionist_all_health_goals" ON menu_health_goals
-  FOR ALL USING (auth.user_role() = 'nutritionist');
+  FOR ALL USING (public.user_role() = 'nutritionist');
 
 CREATE POLICY "service_read_health_goals" ON menu_health_goals
   FOR SELECT USING (auth.role() = 'service_role');
@@ -273,14 +272,14 @@ CREATE POLICY "service_read_health_goals" ON menu_health_goals
 -- --------------------------------------------------------
 
 CREATE POLICY "admin_all_nutrition" ON menu_nutrition
-  FOR ALL USING (auth.user_role() = 'platform_admin');
+  FOR ALL USING (public.user_role() = 'platform_admin');
 
 CREATE POLICY "nutritionist_all_nutrition" ON menu_nutrition
-  FOR ALL USING (auth.user_role() = 'nutritionist');
+  FOR ALL USING (public.user_role() = 'nutritionist');
 
 CREATE POLICY "owner_nutrition" ON menu_nutrition
   FOR ALL USING (
-    auth.user_role() = 'restaurant_owner'
+    public.user_role() = 'restaurant_owner'
     AND menu_id IN (
       SELECT m.id FROM menus m
       JOIN restaurants r ON r.id = m.restaurant_id
@@ -296,11 +295,11 @@ CREATE POLICY "service_read_nutrition" ON menu_nutrition
 -- --------------------------------------------------------
 
 CREATE POLICY "admin_all_orders" ON orders
-  FOR ALL USING (auth.user_role() = 'platform_admin');
+  FOR ALL USING (public.user_role() = 'platform_admin');
 
 CREATE POLICY "owner_read_orders" ON orders
   FOR SELECT USING (
-    auth.user_role() = 'restaurant_owner'
+    public.user_role() = 'restaurant_owner'
     AND restaurant_id IN (
       SELECT id FROM restaurants WHERE owner_id = auth.uid()
     )
@@ -314,7 +313,7 @@ CREATE POLICY "service_all_orders" ON orders
 -- --------------------------------------------------------
 
 CREATE POLICY "admin_all_subscriptions" ON subscriptions
-  FOR ALL USING (auth.user_role() = 'platform_admin');
+  FOR ALL USING (public.user_role() = 'platform_admin');
 
 CREATE POLICY "service_all_subscriptions" ON subscriptions
   FOR ALL USING (auth.role() = 'service_role');
@@ -324,7 +323,7 @@ CREATE POLICY "service_all_subscriptions" ON subscriptions
 -- --------------------------------------------------------
 
 CREATE POLICY "admin_all_commission" ON commission_config
-  FOR ALL USING (auth.user_role() = 'platform_admin');
+  FOR ALL USING (public.user_role() = 'platform_admin');
 
 CREATE POLICY "service_read_commission" ON commission_config
   FOR SELECT USING (auth.role() = 'service_role');
@@ -334,7 +333,7 @@ CREATE POLICY "service_read_commission" ON commission_config
 -- --------------------------------------------------------
 
 CREATE POLICY "admin_all_api_keys" ON api_keys
-  FOR ALL USING (auth.user_role() = 'platform_admin');
+  FOR ALL USING (public.user_role() = 'platform_admin');
 
 CREATE POLICY "service_read_api_keys" ON api_keys
   FOR SELECT USING (auth.role() = 'service_role');
